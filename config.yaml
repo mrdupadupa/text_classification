@@ -1,0 +1,88 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: news-classifier
+  namespace: default
+spec:
+  destination:
+    namespace: default
+    server: https://kubernetes.default.svc
+  source:
+    repoURL: <GIT_REPO_URL>
+    targetRevision: HEAD
+    path: news-classifier
+  project: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+  syncOptions:
+    - CreateNamespace=true
+  # Kubernetes resources
+  # Deployment for the web server
+  - kind: Deployment
+    metadata:
+      name: web-server
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: web-server
+      template:
+        metadata:
+          labels:
+            app: web-server
+        spec:
+          containers:
+            - name: web-server
+              image: <DOCKER_IMAGE_NAME>
+              env:
+                - name: MODEL_PATH
+                  value: /models/news_classifier.pkl
+              ports:
+                - containerPort: 8080
+                  name: http
+  # Service for the web server
+  - kind: Service
+    metadata:
+      name: web-server
+    spec:
+      selector:
+        app: web-server
+      ports:
+        - name: http
+          port: 80
+          targetPort: 8080
+  # Persistent volume claim for the model file
+  - kind: PersistentVolumeClaim
+    metadata:
+      name: model-pvc
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+  # Job for data preprocessing
+  - kind: Job
+    metadata:
+      name: data-preprocessing
+    spec:
+      template:
+        spec:
+          containers:
+            - name: data-preprocessing
+              image: <DOCKER_IMAGE_NAME>
+              command: ["python", "preprocess.py"]
+              volumeMounts:
+                - name: model-volume
+                  mountPath: /data
+          volumes:
+            - name: model-volume
+              persistentVolumeClaim:
+                claimName: model-pvc
+          restartPolicy: OnFailure
+  # Cron job for model training
+  - kind: CronJob
+    metadata:
+
